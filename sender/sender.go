@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -11,32 +12,33 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func main() {
-	if err := godotenv.Load(); err != nil {
-		panic(err)
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Panicf("%s: %s", msg, err)
 	}
+}
+
+func main() {
+	err := godotenv.Load()
+	failOnError(err, "Failed to load envs")
 
 	amqpServerURL := os.Getenv("AMQP_SERVER_URL")
 
 	// Create a new RabbitMQ connection.
 	connectRabbitMQ, err := amqp.Dial(amqpServerURL)
-	if err != nil {
-		panic(err)
-	}
+	failOnError(err, "Failed to connect to RabbitMQ")
 	defer connectRabbitMQ.Close()
 
 	// Let's start by opening a channel to our RabbitMQ
 	// instance over the connection we have already
 	// established.
 	channelRabbitMQ, err := connectRabbitMQ.Channel()
-	if err != nil {
-		panic(err)
-	}
+	failOnError(err, "Failed to open a channel")
 	defer channelRabbitMQ.Close()
 
 	// With the instance and declare Queues that we can
 	// publish and subscribe to.
-	_, err = channelRabbitMQ.QueueDeclare(
+	q, err := channelRabbitMQ.QueueDeclare(
 		"QueueService1", // queue name
 		true,            // durable
 		false,           // auto delete
@@ -44,9 +46,7 @@ func main() {
 		false,           // no wait
 		nil,             // arguments
 	)
-	if err != nil {
-		panic(err)
-	}
+	failOnError(err, "Failed to declare a queue")
 
 	router := gin.Default()
 
@@ -62,11 +62,11 @@ func main() {
 		// Attempt to publish a message to the queue.
 		if err := channelRabbitMQ.PublishWithContext(
 			ctx,
-			"",              // exchange
-			"QueueService1", // queue name
-			false,           // mandatory
-			false,           // immediate
-			message,         // message to publish
+			"",      // exchange
+			q.Name,  // queue name
+			false,   // mandatory
+			false,   // immediate
+			message, // message to publish
 		); err != nil {
 			c.JSON(http.StatusOK, gin.H{"err": err.Error()})
 			return
@@ -75,7 +75,6 @@ func main() {
 		c.Status(http.StatusOK)
 	})
 
-	if err := router.Run(":3000"); err != nil {
-		panic(err)
-	}
+	e := router.Run(":3000")
+	failOnError(e, "Failed to init router")
 }
