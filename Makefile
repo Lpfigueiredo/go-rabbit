@@ -1,3 +1,7 @@
+.PHONY: env
+env:
+	cp .env.local .env
+
 .PHONY: sender
 sender:
 	go run sender
